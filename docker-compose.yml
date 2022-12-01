@@ -4,6 +4,8 @@ version: '3.4'
 services:
   khodgard:
     image: khodgard
+    volumes:
+      - ./Storage/App.db:/app/publish/Storage/App.db:rw
     build:
       context: .
       dockerfile: ./Dockerfile
