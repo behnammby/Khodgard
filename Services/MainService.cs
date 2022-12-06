@@ -3,6 +3,7 @@ namespace Khodgard.Services;
 using Khodgard.Data;
 using Khodgard.Exceptions;
 using Khodgard.Models;
+using Microsoft.EntityFrameworkCore;
 using Timer = System.Timers.Timer;
 
 public class MainService : BackgroundService
@@ -20,6 +21,17 @@ public class MainService : BackgroundService
         IConfiguration config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         ILogger<Map> logger = scope.ServiceProvider.GetRequiredService<ILogger<Map>>();
         UnitOfWork uow = scope.ServiceProvider.GetRequiredService<UnitOfWork>();
+
+        logger.LogInformation("Doing migration ...");
+        try
+        {
+            AppDbContext context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await context.Database.MigrateAsync();
+        }
+        catch (Exception exp)
+        {
+            logger.LogError(exp, "Migration failed");
+        }
 
         int timerMinDelay = config.GetValue<int>("MainService:TimerMinDelay");
 
