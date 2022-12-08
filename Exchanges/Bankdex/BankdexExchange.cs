@@ -85,7 +85,13 @@ public class BankdexExchange : Exchange
         if (ApiKey is null || Url is null)
             return;
 
-        _client = new(Url);
+        RestClientOptions options = new()
+        {
+            RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true,
+            BaseUrl = new(Url)
+        };
+
+        _client = new(options);
         _client.AddDefaultHeader("X-Auth-Apikey", ApiKey);
         _client.AddDefaultHeader("Content-Type", "application/json");
     }

@@ -5,7 +5,7 @@ services:
   khodgard:
     image: khodgard
     volumes:
-      - ./Storage/App.db:/app/publish/Storage/App.db:rw
+      - ./Storage:/app/Storage
     build:
       context: .
       dockerfile: ./Dockerfile
