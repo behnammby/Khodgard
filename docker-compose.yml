@@ -3,6 +3,7 @@ version: '3.4'
 services:
   khodgard:
     image: khodgard
+    network_mode: "host"
     volumes:
       - ./Storage:/app/Storage
     build:
@@ -12,7 +13,7 @@ services:
   mysql_8:
     restart: always
     image: mysql:8.0
-    # network_mode: "host"
+    network_mode: "host"
     ports:
       - 3306:3306
     volumes:
