@@ -14,7 +14,12 @@ public class ExchangeBase : Exchange
         throw new NotImplementedException();
     }
 
-    public override Task<IEnumerable<Line>> GetDepthAsync(Market market, Map? map = null)
+    public override Task<IEnumerable<Line>> GetDepthAsync(Market market, int limit, Map? map = null)
+    {
+        throw new NotImplementedException();
+    }
+
+    public override Task<IEnumerable<Trade>> GetTradesAsync(Market market, int limit)
     {
         throw new NotImplementedException();
     }

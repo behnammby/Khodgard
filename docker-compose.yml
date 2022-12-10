@@ -1,4 +1,3 @@
-
 version: '3.4'
 
 services:
@@ -9,3 +8,14 @@ services:
     build:
       context: .
       dockerfile: ./Dockerfile
+
+  mysql_8:
+    restart: always
+    image: mysql:8.0
+    # network_mode: "host"
+    ports:
+      - 3306:3306
+    volumes:
+      - ./Storage/db:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: 1234567

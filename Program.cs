@@ -6,9 +6,12 @@ IHost host = Host.CreateDefaultBuilder(args)
 .ConfigureServices((context, services) =>
 {
     string? connectionString = context.Configuration.GetConnectionString("AppDbContext");
+    if (connectionString is null)
+        throw new ArgumentNullException("Connection string is empty");
+
     services.AddDbContext<AppDbContext>(options =>
     {
-        options.UseSqlite(connectionString);
+        options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
     });
 
     services.AddScoped<UnitOfWork>();

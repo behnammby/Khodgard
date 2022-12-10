@@ -25,21 +25,26 @@ public class BinanceExchange : Exchange
         throw new NotImplementedException();
     }
 
-    public override async Task<IEnumerable<Line>> GetDepthAsync(Market market, Map? map = null)
+    public override async Task<IEnumerable<Line>> GetDepthAsync(Market market, int limit, Map? map = null)
     {
         List<Line> lines = new();
-        var response = await _client.SpotApi.ExchangeData.GetOrderBookAsync(market.ToUpperString(), market.DepthLimit);
+        var response = await _client.SpotApi.ExchangeData.GetOrderBookAsync(market.ToUpperString(), limit);
         if (!response.Success)
             return lines;
 
         var depth = response.Data;
         foreach (var ask in depth.Asks)
-            lines.Add(new(ask.Price, (double)ask.Quantity, OrderSide.Sell, map));
+            lines.Add(new(ask.Price, (double)ask.Quantity, OrderSide.Ask, map));
 
         foreach (var bid in depth.Bids)
-            lines.Add(new(bid.Price, (double)bid.Quantity, OrderSide.Buy, map));
+            lines.Add(new(bid.Price, (double)bid.Quantity, OrderSide.Bid, map));
 
         return lines;
+    }
+
+    public override Task<IEnumerable<Trade>> GetTradesAsync(Market market, int limit)
+    {
+        throw new NotImplementedException();
     }
 
     public override void Init()

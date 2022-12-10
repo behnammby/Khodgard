@@ -4,5 +4,5 @@ namespace Khodgard.Extensions;
 
 public static class LockMapTypeExtensions
 {
-    public static string ToColumnName(this LockMapType lockType) => "LockedFor" + lockType.ToString();
+    public static string ToColumnName(this LockMapType lockType) => "Locked" + lockType.ToString();
 }

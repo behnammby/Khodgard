@@ -43,7 +43,7 @@ public class MainService : BackgroundService
                 using var scope = _scopeFactory.CreateScope();
                 UnitOfWork uow = scope.ServiceProvider.GetRequiredService<UnitOfWork>();
 
-                Map map = uow.GetAMapToRun();
+                Map map = uow.MapsRepo.GetAMapToRun();
 
                 Thread thread = new(async () => await map.ExecuteAsync(_scopeFactory, stoppingToken));
 
@@ -62,7 +62,7 @@ public class MainService : BackgroundService
         };
 
         logger.LogInformation("Clearing all locks");
-        await uow.ClearAllLocksAsync();
+        await uow.MapsRepo.ClearAllLocksAsync();
 
         logger.LogInformation("MAIN servcie started");
         timer.Start();

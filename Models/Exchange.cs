@@ -16,7 +16,8 @@ public abstract class Exchange
     public bool Enabled { get; set; }
 
     public abstract void Init();
-    public abstract Task<IEnumerable<Line>> GetDepthAsync(Market market, Map? map = null);
+    public abstract Task<IEnumerable<Line>> GetDepthAsync(Market market, int limit, Map? map = null);
+    public abstract Task<IEnumerable<Trade>> GetTradesAsync(Market market, int limit);
     public abstract Task<bool> CreateOrderAsync(Order order, int pricePrecision, int amountPrecision);
     public abstract Task<bool> CancelOrderAsync(Order order);
 }

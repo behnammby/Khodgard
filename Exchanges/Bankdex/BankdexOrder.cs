@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Khodgard.Enumerations;
 using Khodgard.Models;
 using Khodgard.Utils;
 
@@ -8,9 +9,9 @@ public class BankdexOrder
 {
     public BankdexOrder(Order order, int pricePrecision, int amountPrecision)
     {
-        Price = NumberHelper.ModifyDecimalPlaces(order.Price, pricePrecision);
-        Amount = NumberHelper.ModifyDecimalPlaces(order.Amount, amountPrecision);
-        Side = order.Side.ToString().ToLower();
+        Price = (decimal)NumberHelper.ModifyDecimalPlaces(order.Price, pricePrecision);
+        Amount = (double)NumberHelper.ModifyDecimalPlaces(order.Amount, amountPrecision);
+        Side = order.Side == OrderSide.Ask ? "sell" : "buy";
         Market = order.Market.ToString();
     }
 

@@ -11,17 +11,24 @@ internal class MapBehavior
     private readonly Map _map;
     private readonly ILogger _logger;
     private readonly UnitOfWork _uow;
+    private readonly IServiceScopeFactory _scopeFactory;
 
-    public MapBehavior(int mapId, ILogger logger, UnitOfWork uow)
+    public MapBehavior(int mapId, ILogger logger, UnitOfWork uow, IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _uow = uow;
+        _scopeFactory = scopeFactory;
 
-        _map = _uow.GetMapById(mapId);
+        _map = _uow.MapsRepo.GetMapById(mapId);
         _map.Source.Exchange.Init();
         _map.Target.Exchange.Init();
     }
 
+    private void LogCreateOrderException(Exception exp, decimal price, double amount, OrderSide side)
+    {
+        _logger.LogError("Creating order failed, Price= {Price}, Amount= {Amount}, Side= {side}", price, amount, side);
+        _logger.LogError("Error: {Error} {Inner}", exp.Message, exp.InnerException?.Message ?? string.Empty);
+    }
     private async Task RefreshLinesAsync(IEnumerable<Line> lines)
     {
         foreach (Line line in lines)
@@ -35,7 +42,8 @@ internal class MapBehavior
             }
             catch (LineNotFoundException)
             {
-                _uow.LinesRepo.Create(new(line.Price, line.Amount, line.Side, _map));
+                Line newLine = new(line.Price, line.Amount, line.Side, _map);
+                _uow.LinesRepo.Create(newLine);
             }
         }
 
@@ -57,14 +65,17 @@ internal class MapBehavior
         Line line = new(price, amount, side, _map);
         Order order = new(price, amount, side, _map.Target, line);
 
-        bool result = await _map.Target.Exchange.CreateOrderAsync(order, _map.Target.PricePrecision, _map.Target.AmountPrecision);
-        if (result)
+        try
         {
+            await _map.Target.Exchange.CreateOrderAsync(order, _map.Target.PricePrecision, _map.Target.AmountPrecision);
             _uow.LinesRepo.Create(line);
             _uow.OrdersRepo.Create(order);
         }
-        else
+        catch (CreateOrderException exp)
+        {
+            LogCreateOrderException(exp, price, amount, side);
             return;
+        }
 
         await _uow.CommitAsync();
     }
@@ -75,20 +86,23 @@ internal class MapBehavior
             double diff = amount - line.Amount;
             Order order = new(price: line.Price, amount: diff, side: line.Side, market: _map.Target, line);
 
-            bool result = await _map.Target.Exchange.CreateOrderAsync(order, _map.Target.PricePrecision, _map.Target.AmountPrecision);
-            if (result)
+            try
             {
+                await _map.Target.Exchange.CreateOrderAsync(order, _map.Target.PricePrecision, _map.Target.AmountPrecision);
                 line.Amount += diff;
                 line.Updated = DateTime.UtcNow;
                 _uow.LinesRepo.Update(line);
                 _uow.OrdersRepo.Create(order);
             }
-            else
+            catch (CreateOrderException exp)
+            {
+                LogCreateOrderException(exp, line.Price, amount, line.Side);
                 return;
+            }
         }
         else if (amount < line.Amount)
         {
-            var lineOrders = _uow.GetOrdersOfLine(line);
+            var lineOrders = _uow.OrdersRepo.GetOrdersOfLine(line);
             double diff = line.Amount - amount;
 
             if (diff <= 0)
@@ -97,9 +111,9 @@ internal class MapBehavior
             double deleteAmount = 0;
             Order order = new(price: line.Price, amount: diff, side: line.Side, market: _map.Target, line: line);
 
-            bool createResult = await _map.Target.Exchange.CreateOrderAsync(order, _map.Target.PricePrecision, _map.Target.AmountPrecision);
-            if (createResult)
+            try
             {
+                await _map.Target.Exchange.CreateOrderAsync(order, _map.Target.PricePrecision, _map.Target.AmountPrecision);
                 line.Amount += amount;
                 foreach (Order lineOrder in lineOrders)
                 {
@@ -111,6 +125,11 @@ internal class MapBehavior
                     }
                 }
             }
+            catch (CreateOrderException exp)
+            {
+                LogCreateOrderException(exp, line.Price, amount, line.Side);
+                return;
+            }
 
             line.Amount -= deleteAmount;
             if (line.Amount > amount * 1.5)
@@ -120,24 +139,6 @@ internal class MapBehavior
             line.Updated = DateTime.UtcNow;
             _uow.LinesRepo.Update(line);
             _uow.OrdersRepo.Create(order);
-
-            // diff = deleteAmount - diff;
-            // if (diff > 0)
-            // {
-            //     Order order = new(price: line.Price, amount: diff, side: line.Side, _map.Target, line);
-            //     bool result = await _map.Target.Exchange.CreateOrderAsync(order, _map.Target.PricePrecision, _map.Target.AmountPrecision);
-            //     if (result)
-            //     {
-            //         line.Amount = amount;
-            //         line.Updated = DateTime.UtcNow;
-            //         _uow.LinesRepo.Update(line);
-            //         _uow.OrdersRepo.Create(order);
-            //     }
-            //     else
-            //         return;
-            // }
-            // else
-            //     return;
         }
 
         await _uow.CommitAsync();
@@ -145,7 +146,7 @@ internal class MapBehavior
     private async Task DeleteLineAsync(Line line)
     {
         Log("Deleting line {Id}, pirce= {Price}, amount= {Amount}", line.Id, line.Price, line.Amount);
-        var orders = _uow.GetOrdersOfLine(line);
+        var orders = _uow.OrdersRepo.GetOrdersOfLine(line);
         foreach (Order order in orders)
         {
             bool result = await _map.Target.Exchange.CancelOrderAsync(order);
@@ -159,38 +160,50 @@ internal class MapBehavior
         await _uow.CommitAsync();
         Log("Deleted");
     }
-    private IEnumerable<Line> GetLinesByAge(Map map, int maxAge) => _uow.LinesRepo.GetLinesByAge(map, maxAge);
-    private IEnumerable<Line> GetLinesByCount(Map map, int maxLines) => _uow.LinesRepo.GetLinesByCount(map, maxLines);
+    private IEnumerable<Line> GetLinesByAge(Map map, int maxAge, int maxDeleteLines) => _uow.LinesRepo.GetLinesByAge(map, maxAge, maxDeleteLines);
+    private IEnumerable<Line> GetLinesByCount(Map map, int maxLines, int maxDeleteLines) => _uow.LinesRepo.GetLinesByCount(map, maxLines, maxDeleteLines);
     private void Log(string msg, params object?[] args)
     {
         msg = $"Map#{_map.Id}: " + msg;
         _logger.LogInformation(msg, args);
+    }
+    private void LogTrace(string msg, params object?[] args)
+    {
+        msg = $"Map#{_map.Id}: " + msg;
+        _logger.LogTrace(msg, args);
     }
     private void CheckTimers(IEnumerable<Timer> timers)
     {
         if (timers.Any(_ => !_.Enabled))
             throw new TimerStoppedException();
     }
-
-    public async Task SynchronizeLinesAsync(CancellationToken stoppingToken, IEnumerable<Timer> timers)
+    private IEnumerable<IEnumerable<Line>> DivideIntoSegments(IEnumerable<Line> shuffled, int denom)
     {
-        if (stoppingToken.IsCancellationRequested)
+        int length = shuffled.Count() / denom;
+        List<IEnumerable<Line>> segments = new();
+        for (int i = 0; i < denom; i++)
+        {
+            if (i == denom - 1)
+                segments.Add(shuffled.TakeLast(shuffled.Count() - i * length));
+            else
+                segments.Add(shuffled.Skip(i * length).Take(length));
+        }
+
+        return segments;
+    }
+    private async Task SynchronizeLineSegment(IEnumerable<Line>? segment, CancellationToken stoppingToken)
+    {
+        if (segment is null)
             return;
 
-        Log("Synchronizing lines started");
-
-        IEnumerable<Line> targetLines = await _map.Target.Exchange.GetDepthAsync(_map.Target, _map);
-        Log("{Count} lines got from target, refershing before syncying", targetLines.Count());
-        await RefreshLinesAsync(targetLines);
-
-        IEnumerable<Line> sourceLines = await _map.Source.Exchange.GetDepthAsync(_map.Source, _map);
-        Log("{Count} lines got from source, sychronizing", sourceLines.Count());
-        foreach (Line sourceLine in sourceLines.ToList().Shuffle())
+        int i = 0;
+        Log("Syncying line segmegment, Count= {Count}", segment.Count());
+        foreach (Line sourceLine in segment)
         {
             if (stoppingToken.IsCancellationRequested)
                 break;
 
-            Log("Syncing line Price= {Line}, Amount= {Amount}, Side= {Side}", sourceLine.Price, sourceLine.Amount, sourceLine.Side);
+            LogTrace("Syncing line Price= {Line}, Amount= {Amount}, Side= {Side}", sourceLine.Price, sourceLine.Amount, sourceLine.Side);
             sourceLine.ApplyRatio(_map.Ratio);
             Line? targetLine = GetLine(sourceLine.Price);
 
@@ -206,21 +219,60 @@ internal class MapBehavior
                 if (sourceLine.Amount > 0)
                     await CreateLineAsync(sourceLine.Price, sourceLine.Amount, sourceLine.Side);
             }
-            Log("Syncying finished");
+            LogTrace("Syncying finished");
+            i++;
+        }
+        Log("Synchronizing segment finished, {Synced} out of {Lines} synced.", i, segment.Count());
+    }
+
+    public async Task SynchronizeLinesAsync(CancellationToken stoppingToken, IEnumerable<Timer> timers)
+    {
+        if (stoppingToken.IsCancellationRequested)
+            return;
+
+        Log("Synchronizing lines started");
+
+        IEnumerable<Line> sourceLines = await _map.Source.Exchange.GetDepthAsync(_map.Source, _map.DepthLimit * _map.SyncMultifold, _map);
+        Log("{Count} lines got from source, sychronizing", sourceLines.Count());
+
+        var shuffled = sourceLines.ToList().Shuffle().Take(_map.DepthLimit);
+        var segments = DivideIntoSegments(shuffled, _map.SyncSegments);
+
+        Log("{Count} lines candidates for synchronizing, in {Segments} segments", shuffled.Count(), segments.Count());
+
+        List<Thread> threads = new();
+        foreach (var segment in segments)
+        {
+            if (segment is null)
+                continue;
+
+            Thread thread = new(async () =>
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<Map>>();
+                var uow = scope.ServiceProvider.GetRequiredService<UnitOfWork>();
+
+                MapBehavior behavior = new(mapId: _map.Id, logger, uow, _scopeFactory);
+                await behavior.SynchronizeLineSegment(segment, stoppingToken);
+            });
+
+            thread.Name = $"Segment, Count= {segment.Count()}";
+            threads.Add(thread);
         }
 
-        Log("Synchronizying lines finished.");
+        foreach (var thread in threads)
+            thread.Start();
+
+        while (threads.Any(_ => _.ThreadState != ThreadState.Stopped)) { }
+
+        Log("Synchronizying lines finished using {Count} threads", threads.Count);
         CheckTimers(timers);
     }
-    public async Task ClearLinesByAgeAsync(int maxAge, CancellationToken stoppingToken, IEnumerable<Timer> timers)
+    public async Task ClearLinesByAgeAsync(int maxAge, int maxDeleteLines, CancellationToken stoppingToken, IEnumerable<Timer> timers)
     {
         Log("Clear lines by age started");
 
-        IEnumerable<Line> targetLines = await _map.Target.Exchange.GetDepthAsync(_map.Target, _map);
-        Log("{Count} lines got from target, refershing before deleting", targetLines.Count());
-        await RefreshLinesAsync(targetLines);
-
-        IEnumerable<Line> lines = GetLinesByAge(_map, maxAge);
+        IEnumerable<Line> lines = GetLinesByAge(_map, maxAge, maxDeleteLines);
         Log("{Count} lines got for deletion by age factor", lines.Count());
         foreach (Line line in lines.ToList().Shuffle())
         {
@@ -233,10 +285,10 @@ internal class MapBehavior
         Log("Clear lines by age finsihed");
         CheckTimers(timers);
     }
-    public async Task ClearLinesByCountAsync(int maxLines, CancellationToken stoppingToken, IEnumerable<Timer> timers)
+    public async Task ClearLinesByCountAsync(int maxLines, int maxDeleteLines, CancellationToken stoppingToken, IEnumerable<Timer> timers)
     {
         Log("Clearing lines by count started");
-        IEnumerable<Line> lines = GetLinesByCount(_map, maxLines);
+        IEnumerable<Line> lines = GetLinesByCount(_map, maxLines, maxDeleteLines);
 
         Log("{Count} lines got for deletion by count factor", lines.Count());
         foreach (Line line in lines.ToList().Shuffle())

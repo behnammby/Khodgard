@@ -21,7 +21,6 @@ public class Market
     public decimal MaxPrice { get; set; }
     public int AmountPrecision { get; set; }
     public int PricePrecision { get; set; }
-    public int DepthLimit { get; set; }
     public Exchange Exchange { get; set; }
     public bool Enabled { get; set; }
 

@@ -22,30 +22,36 @@ public class Map
     public Market Source { get; set; }
     public Market Target { get; set; }
     public double Ratio { get; set; }
-    public int SyncMinDelay { get; set; }
-    public int ClearByAgeMinDelay { get; set; }
-    public int ClearByCountMinDelay { get; set; }
+    public int DepthLimit { get; set; }
+    public int SyncSegments { get; set; }
+    public int SyncMultifold { get; set; }
+    public int SyncDelay { get; set; }
+    public int ClearAgeDelay { get; set; }
+    public int ClearCountDelay { get; set; }
     public int MaxAge { get; set; }
     public int MaxLines { get; set; }
+    public int MaxDeleteLines { get; set; }
     public bool IsRunning { get; set; }
-    public bool LockedForSync { get; set; }
-    public bool LockedForClearByAge { get; set; }
-    public bool LockedForClearByCount { get; set; }
+    public bool LockedSync { get; set; }
+    public bool LockedClearAge { get; set; }
+    public bool LockedClearCount { get; set; }
     public bool Enabled { get; set; }
 
     public async Task ExecuteAsync(IServiceScopeFactory scopeFactory, CancellationToken stoppingToken)
     {
-        // LockMapType[] lockTypes = new[] { LockMapType.Sync, LockMapType.ClearByAge, LockMapType.ClearByCount };
-        LockMapType[] lockTypes = new[] { LockMapType.Sync, LockMapType.ClearByAge };
+        LockMapType[] lockTypes = new[] { LockMapType.Sync, LockMapType.ClearAge, LockMapType.ClearCount };
+        // LockMapType[] lockTypes = new[] { LockMapType.Sync, LockMapType.ClearByAge };
+        // LockMapType[] lockTypes = new[] { LockMapType.Sync };
+        // LockMapType[] lockTypes = new[] { LockMapType.ClearByCount };
 
         using var scope = scopeFactory.CreateScope();
 
         ILogger<Map> logger = scope.ServiceProvider.GetRequiredService<ILogger<Map>>();
         UnitOfWork uow = scope.ServiceProvider.GetRequiredService<UnitOfWork>();
 
-        if (!await uow.MarkMapAsRunning(this))
+        if (!await uow.MapsRepo.MarkMapAsRunning(this))
         {
-            logger.LogInformation("Map#{Id}: Couldn't mark the map, skipping.", Id);
+            logger.LogError("Map#{Id}: Couldn't mark the map, skipping.", Id);
             return;
         }
 
@@ -55,9 +61,9 @@ public class Map
         {
             int minDelay = lockType switch
             {
-                LockMapType.Sync => SyncMinDelay * 1_000,
-                LockMapType.ClearByAge => ClearByAgeMinDelay * 1_000,
-                LockMapType.ClearByCount => ClearByCountMinDelay * 1_000,
+                LockMapType.Sync => SyncDelay * 1_000,
+                LockMapType.ClearAge => ClearAgeDelay * 1_000,
+                LockMapType.ClearCount => ClearCountDelay * 1_000,
 
                 _ => throw new LockMapTypeInvalidException()
             };
@@ -72,9 +78,11 @@ public class Map
                 ILogger<Map> logger = scope.ServiceProvider.GetRequiredService<ILogger<Map>>();
                 UnitOfWork uow = scope.ServiceProvider.GetRequiredService<UnitOfWork>();
 
+                logger.LogTrace("Map#{Id}: Timer {LockType} elapsed", Id, lockType);
+
                 if (stoppingToken.IsCancellationRequested)
                 {
-                    logger.LogInformation("Map#{Id}: Cancellation requested, Stopping the timer {TimerType}.", Id, lockType);
+                    logger.LogTrace("Map#{Id}: Cancellation requested, Stopping the timer {TimerType}.", Id, lockType);
                     timer.Stop();
                     timer.Close();
                     timer.Dispose();
@@ -83,32 +91,34 @@ public class Map
 
                 try
                 {
-                    if (!await uow.LockMap(this, lockType))
+                    logger.LogTrace("Map#{Id}: Trying to lock {LockType}", Id, lockType);
+                    if (!await uow.MapsRepo.LockMap(this, lockType))
                     {
-                        logger.LogInformation("Map#{Id}: Map is {LockType} locked by another process, skiping.", Id, lockType);
+                        logger.LogTrace("Map#{Id}: Map is {LockType} locked by another process, skiping.", Id, lockType);
                         return;
                     }
 
-                    MapBehavior behavior = new(Id, logger, uow);
+                    MapBehavior behavior = new(Id, logger, uow, scopeFactory);
 
                     var handler = lockType switch
                     {
                         LockMapType.Sync => behavior.SynchronizeLinesAsync(stoppingToken, timers),
-                        LockMapType.ClearByAge => behavior.ClearLinesByAgeAsync(MaxAge, stoppingToken, timers),
-                        LockMapType.ClearByCount => behavior.ClearLinesByCountAsync(MaxLines, stoppingToken, timers),
+                        LockMapType.ClearAge => behavior.ClearLinesByAgeAsync(MaxAge, MaxDeleteLines, stoppingToken, timers),
+                        LockMapType.ClearCount => behavior.ClearLinesByCountAsync(MaxLines, MaxDeleteLines, stoppingToken, timers),
 
                         _ => throw new LockMapTypeInvalidException()
                     };
 
+
                     await handler;
 
-                    bool unlock = await uow.UnlockMap(this, lockType);
+                    bool unlock = await uow.MapsRepo.UnlockMap(this, lockType);
                     return;
                 }
                 catch (Exception exp)
                 {
-                    logger.LogInformation("Map#{Id}: Error occured, Stopping the timer {LockType}.", Id, lockType);
-                    logger.LogInformation("Map#{Id}: {Error}", Id, exp.Message);
+                    logger.LogError("Map#{Id}: Error occured, Stopping the timer {LockType}.", Id, lockType);
+                    logger.LogError("Map#{Id}: {Error} {InnerError}", Id, exp.GetType().Name + ": " + exp.Message, exp?.InnerException is not null ? exp.InnerException.GetType().Name + " " + exp?.InnerException?.Message : string.Empty);
                     timer.Stop();
                     timer.Close();
                     timer.Dispose();
@@ -129,16 +139,40 @@ public class Map
                     UnitOfWork uow = scope.ServiceProvider.GetRequiredService<UnitOfWork>();
 
                     logger.LogInformation("Map#{Id}: All timers are stopped! Releasing the map now", Id);
-                    bool result = await uow.ReleaseMap(this);
+                    bool result = await uow.MapsRepo.ReleaseMap(this);
                     if (result)
                         logger.LogInformation("Map#{Id}: Map released", Id);
                     else
-                        logger.LogInformation("Map#{Id}: Couldn't release the map!", Id);
+                        logger.LogError("Map#{Id}: Couldn't release the map!", Id);
                 }
             };
 
             logger.LogInformation("Map#{Id}: Timer {LockType} started", Id, lockType);
             timer.Start();
         }
+    }
+
+    public override bool Equals(object? obj)
+    {
+        if (obj is not Map map)
+            return false;
+
+        return Id == map.Id;
+    }
+
+    public override int GetHashCode() => Id;
+    public static bool operator ==(Map? a, Map? b)
+    {
+        if (a is null || b is null)
+            return false;
+
+        return a.Equals(b);
+    }
+    public static bool operator !=(Map? a, Map? b)
+    {
+        if (a is null || b is null)
+            return false;
+
+        return !a.Equals(b);
     }
 }

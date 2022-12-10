@@ -1,27 +1,25 @@
+using System.Text;
+
 namespace Khodgard.Utils;
 
 public static class NumberHelper
 {
-    public static double ModifyDecimalPlaces(double number, int digits)
+    public static object ModifyDecimalPlaces(object number, int places)
     {
-        int decimalPlaces = CalculateDecimalPlaces(digits);
-        double rounded = Convert.ToDouble(Convert.ToInt32(number * decimalPlaces)) / decimalPlaces;
+        StringBuilder sb = new();
+        sb.Append("0.");
+        for (int i = 0; i < places; i++)
+            sb.Append("#");
 
-        return rounded;
-    }
+        string format = sb.ToString();
 
-    public static decimal ModifyDecimalPlaces(decimal number, int digits)
-    {
-        int decimalPlaces = CalculateDecimalPlaces(digits);
-        decimal rounded = Convert.ToDecimal(Convert.ToInt32(number * decimalPlaces)) / decimalPlaces;
+        return number switch
+        {
+            float @float => float.Parse(@float.ToString(format)),
+            double @double => double.Parse(@double.ToString(format)),
+            decimal @decimal => decimal.Parse(@decimal.ToString(format)),
 
-        return rounded;
-    }
-
-    public static int CalculateDecimalPlaces(int digits)
-    {
-        int decimalPlaces = (int)Math.Pow(10, digits);
-
-        return decimalPlaces;
+            _ => 0
+        };
     }
 }
