@@ -241,32 +241,37 @@ internal class MapBehavior
 
         Log("{Count} lines candidates for synchronizing, in {Segments} segments", shuffled.Count(), segments.Count());
 
-        List<Thread> threads = new();
+        // List<Thread> threads = new();
         foreach (var segment in segments)
         {
             if (segment is null)
                 continue;
 
-            Thread thread = new(async () =>
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<Map>>();
-                var uow = scope.ServiceProvider.GetRequiredService<UnitOfWork>();
+            await SynchronizeLineSegment(segment, stoppingToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
 
-                MapBehavior behavior = new(mapId: _map.Id, logger, uow, _scopeFactory);
-                await behavior.SynchronizeLineSegment(segment, stoppingToken);
-            });
+            // Thread thread = new(async () =>
+            // {
+            //     using var scope = _scopeFactory.CreateScope();
+            //     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Map>>();
+            //     var uow = scope.ServiceProvider.GetRequiredService<UnitOfWork>();
 
-            thread.Name = $"Segment, Count= {segment.Count()}";
-            threads.Add(thread);
+            //     MapBehavior behavior = new(mapId: _map.Id, logger, uow, _scopeFactory);
+            //     await behavior.SynchronizeLineSegment(segment, stoppingToken);
+            // });
+
+            // thread.Name = $"Segment, Count= {segment.Count()}";
+            // threads.Add(thread);
         }
 
-        foreach (var thread in threads)
-            thread.Start();
+        // foreach (var thread in threads)
+        //     thread.Start();
 
-        while (threads.Any(_ => _.ThreadState != ThreadState.Stopped)) { }
+        // while (threads.Any(_ => _.ThreadState != ThreadState.Stopped)) { }
 
-        Log("Synchronizying lines finished using {Count} threads", threads.Count);
+        // Log("Synchronizying lines finished using {Count} threads", threads.Count);
+        Log("Synchronizying lines finished using {Count} segments", segments.Count());
+
         CheckTimers(timers);
     }
     public async Task ClearLinesByAgeAsync(int maxAge, int maxDeleteLines, CancellationToken stoppingToken, IEnumerable<Timer> timers)
@@ -281,7 +286,7 @@ internal class MapBehavior
                 break;
 
             await DeleteLineAsync(line);
-            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            await Task.Delay(TimeSpan.FromMilliseconds(10));
         }
 
         Log("Clear lines by age finsihed");
@@ -299,7 +304,7 @@ internal class MapBehavior
                 break;
 
             await DeleteLineAsync(line);
-            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            await Task.Delay(TimeSpan.FromMilliseconds(10));
         }
 
         Log("Clearing lines by count finished");
