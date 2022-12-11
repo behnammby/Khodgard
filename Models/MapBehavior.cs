@@ -145,20 +145,20 @@ internal class MapBehavior
     }
     private async Task DeleteLineAsync(Line line)
     {
-        Log("Deleting line {Id}, pirce= {Price}, amount= {Amount}", line.Id, line.Price, line.Amount);
+        LogTrace("Deleting line {Id}, pirce= {Price}, amount= {Amount}", line.Id, line.Price, line.Amount);
         var orders = _uow.OrdersRepo.GetOrdersOfLine(line);
         foreach (Order order in orders)
         {
             bool result = await _map.Target.Exchange.CancelOrderAsync(order);
             if (!result)
-                Log("Couldn't delete the order {Order}, price= {Pirce}, amount= {Amount}", order.Uid, order.Price, order.Amount);
+                LogError("Couldn't delete the order Id={Order}, price= {Pirce}, amount= {Amount}", order.Uid, order.Price, order.Amount);
             _uow.OrdersRepo.Delete(order);
         }
 
         _uow.LinesRepo.Delete(line);
 
         await _uow.CommitAsync();
-        Log("Deleted");
+        LogTrace("Deleted");
     }
     private IEnumerable<Line> GetLinesByAge(Map map, int maxAge, int maxDeleteLines) => _uow.LinesRepo.GetLinesByAge(map, maxAge, maxDeleteLines);
     private IEnumerable<Line> GetLinesByCount(Map map, int maxLines, int maxDeleteLines) => _uow.LinesRepo.GetLinesByCount(map, maxLines, maxDeleteLines);
@@ -168,6 +168,11 @@ internal class MapBehavior
         _logger.LogInformation(msg, args);
     }
     private void LogTrace(string msg, params object?[] args)
+    {
+        msg = $"Map#{_map.Id}: " + msg;
+        _logger.LogTrace(msg, args);
+    }
+    private void LogError(string msg, params object?[] args)
     {
         msg = $"Map#{_map.Id}: " + msg;
         _logger.LogTrace(msg, args);
