@@ -226,7 +226,7 @@ internal class MapBehavior
             }
             LogTrace("Syncying finished");
             i++;
-            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            await Task.Delay(TimeSpan.FromMilliseconds(10));
         }
         Log("Synchronizing segment finished, {Synced} out of {Lines} synced.", i, segment.Count());
     }
