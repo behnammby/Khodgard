@@ -221,6 +221,7 @@ internal class MapBehavior
             }
             LogTrace("Syncying finished");
             i++;
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
         }
         Log("Synchronizing segment finished, {Synced} out of {Lines} synced.", i, segment.Count());
     }
@@ -280,6 +281,7 @@ internal class MapBehavior
                 break;
 
             await DeleteLineAsync(line);
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
         }
 
         Log("Clear lines by age finsihed");
@@ -297,6 +299,7 @@ internal class MapBehavior
                 break;
 
             await DeleteLineAsync(line);
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
         }
 
         Log("Clearing lines by count finished");
