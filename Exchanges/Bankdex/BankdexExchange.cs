@@ -56,7 +56,7 @@ public class BankdexExchange : Exchange
         List<Line> lines = new();
 
         RestRequest request = new($"/peatio/public/markets/{market.ToString()}/depth");
-        request.AddQueryParameter("limit", limit);
+        request.AddQueryParameter("limit", limit / 2);
 
         var response = await _client.ExecuteAsync<BankdexDepth>(request);
         if (!response.IsSuccessful || response.Data is null)

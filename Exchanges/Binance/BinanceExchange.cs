@@ -28,7 +28,7 @@ public class BinanceExchange : Exchange
     public override async Task<IEnumerable<Line>> GetDepthAsync(Market market, int limit, Map? map = null)
     {
         List<Line> lines = new();
-        var response = await _client.SpotApi.ExchangeData.GetOrderBookAsync(market.ToUpperString(), limit);
+        var response = await _client.SpotApi.ExchangeData.GetOrderBookAsync(market.ToUpperString(), limit / 2);
         if (!response.Success)
             return lines;
 
